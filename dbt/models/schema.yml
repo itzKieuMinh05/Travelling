@@ -1,0 +1,82 @@
+version: 2
+
+# ─── STAGING MODELS ───────────────────────────────────────────
+models:
+  - name: stg_listings
+    description: "Cleaned listings từ Silver Iceberg table"
+    columns:
+      - name: listing_id
+        description: "Primary key"
+        tests:
+          - unique
+          - not_null
+
+      - name: city
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Paris", "New York", "Sydney", "Rio De Janeiro",
+                       "Istanbul", "Rome", "Bangkok", "Cape Town",
+                       "Mexico City", "Hong Kong"]
+
+      - name: room_type
+        tests:
+          - not_null
+          - accepted_values:
+              values: ["Entire place", "Private room", "Hotel room", "Shared room"]
+
+      - name: price
+        tests:
+          - not_null
+          - dbt_utils.expression_is_true:
+              expression: "price > 0"
+
+      - name: review_scores_rating
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "review_scores_rating between 0 and 100"
+              where: "review_scores_rating is not null"
+
+  - name: stg_reviews
+    description: "Cleaned reviews từ Silver Iceberg table"
+    columns:
+      - name: review_id
+        tests:
+          - unique
+          - not_null
+
+      - name: listing_id
+        tests:
+          - not_null
+          - relationships:
+              to: ref('stg_listings')
+              field: listing_id
+
+      - name: review_date
+        tests:
+          - not_null
+
+# ─── MART MODELS ──────────────────────────────────────────────
+  - name: mart_city_pricing
+    description: "Giá trung bình và metrics theo city + room type — dùng cho dashboard"
+    columns:
+      - name: city
+        tests: [not_null]
+      - name: room_type
+        tests: [not_null]
+      - name: avg_price
+        tests:
+          - dbt_utils.expression_is_true:
+              expression: "avg_price > 0"
+
+  - name: mart_host_performance
+    description: "Hiệu suất host: rating, review count, host tier"
+    columns:
+      - name: host_id
+        tests: [not_null]
+
+  - name: mart_review_trends
+    description: "Trend reviews theo tháng, city, room type"
+    columns:
+      - name: month_start_date
+        tests: [not_null]

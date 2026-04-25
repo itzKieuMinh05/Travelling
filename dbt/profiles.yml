@@ -1,0 +1,11 @@
+airbnb_trino:
+  target: dev
+  outputs:
+    dev:
+      type: trino
+      method: none
+      host: trino
+      port: 8080
+      database: iceberg    # tên catalog trong Trino
+      schema: gold
+      threads: 4
