@@ -2,8 +2,7 @@
 BƯỚC 3: PySpark — Bronze → Silver
 Làm sạch dữ liệu, validate, standardize.
 Chạy qua Airflow hoặc trực tiếp:
-  spark-submit --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0,\
-  org.apache.hadoop:hadoop-aws:3.3.4 spark/bronze_to_silver.py
+docker exec spark-submit --packages org.apache.iceberg:iceberg-spark-runtime-3.5_2.12:1.5.0, org.apache.hadoop:hadoop-aws:3.3.4 pipeline/processing/bronze_to_silver.py
 """
 
 import re

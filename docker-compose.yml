@@ -2,7 +2,7 @@ version: "3.9"
 
 # =============================================================
 #  AIRBNB LAKEHOUSE PIPELINE — docker-compose.yml
-#  Stack: Kafka · MinIO · Spark · dbt · Airflow · Trino · Superset
+#  Stack: Kafka · MinIO · Spark · dbt · Airflow · Trino · Superset · Gravitino
 # =============================================================
 
 x-airflow-common: &airflow-common
@@ -13,14 +13,13 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__FERNET_KEY: "your-fernet-key-here-generate-with-python"
     AIRFLOW__CORE__LOAD_EXAMPLES: "false"
     AIRFLOW__WEBSERVER__SECRET_KEY: "your-secret-key-here"
-    # Kết nối MinIO (S3)
     AWS_ACCESS_KEY_ID: minioadmin
     AWS_SECRET_ACCESS_KEY: minioadmin
     AWS_DEFAULT_REGION: us-east-1
   volumes:
-    - ./airflow/dags:/opt/airflow/dags
-    - ./airflow/logs:/opt/airflow/logs
-    - ./airflow/plugins:/opt/airflow/plugins
+    - ./infrastructure/airflow/dags:/opt/airflow/dags
+    - ./infrastructure/airflow/logs:/opt/airflow/logs
+    - ./infrastructure/airflow/plugins:/opt/airflow/plugins
     - ./scripts:/opt/airflow/scripts
     - ./data:/opt/airflow/data
   depends_on:
@@ -38,53 +37,9 @@ volumes:
   kafka_data:
 
 services:
-  gravitino:
-    image: apache/gravitino:0.6.1
-    container_name: gravitino
-    networks: [lakehouse]
-    ports:
-      - "8090:8090"   # Gravitino Web UI
-      - "9001:9001"   # Iceberg REST endpoint
-    environment:
-      GRAVITINO_SERVER_SHUTDOWN_TIMEOUT: "3000"
-      # Backend: PostgreSQL
-      GRAVITINO_ENTITY_STORE: kv
-      GRAVITINO_ENTITY_STORE_KV: RocksDB
-      # Dùng JVM opts để pass config file
-      JAVA_TOOL_OPTIONS: >-
-        -Dgravitino.server.shutdown.timeout=3000
-        -Dgravitino.entity.store=relational
-        -Dgravitino.entity.store.relational.jdbcUrl=jdbc:postgresql://postgres:5432/gravitino
-        -Dgravitino.entity.store.relational.jdbcDriver=org.postgresql.Driver
-        -Dgravitino.entity.store.relational.jdbcUser=airflow
-        -Dgravitino.entity.store.relational.jdbcPassword=airflow
-        -Dgravitino.iceberg-rest.dml-write-mode=rest
-        -Dgravitino.auxService.names=iceberg-rest
-        -Dgravitino.iceberg-rest.host=0.0.0.0
-        -Dgravitino.iceberg-rest.httpPort=9001
-        -Dgravitino.iceberg-rest.catalog-backend=hive
-        -Dgravitino.iceberg-rest.warehouse=s3://iceberg-warehouse/
-        -Dgravitino.iceberg-rest.io-impl=org.apache.iceberg.aws.s3.S3FileIO
-        -Dgravitino.iceberg-rest.s3-endpoint=http://minio:9000
-        -Dgravitino.iceberg-rest.s3-access-key-id=minioadmin
-        -Dgravitino.iceberg-rest.s3-secret-access-key=minioadmin
-        -Dgravitino.iceberg-rest.s3-path-style-access=true
-        -Dgravitino.iceberg-rest.s3-region=us-east-1
-    depends_on:
-      postgres:
-        condition: service_healthy
-      minio:
-        condition: service_healthy
-      minio-init:
-        condition: service_completed_successfully
-    healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8090/api/version"]
-      start_period: 30s
-      interval: 10s
-      timeout: 10s
-      retries: 5
+
   # ─────────────────────────────────────────
-  # 1. ZOOKEEPER (Kafka cần)
+  # 1. ZOOKEEPER
   # ─────────────────────────────────────────
   zookeeper:
     image: confluentinc/cp-zookeeper:7.6.0
@@ -117,32 +72,26 @@ services:
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
-
-      # Fix: tách rõ INTERNAL (docker) vs EXTERNAL (host)
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT
       KAFKA_LISTENERS: INTERNAL://0.0.0.0:29092,EXTERNAL://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: INTERNAL://kafka:29092,EXTERNAL://localhost:9092
       KAFKA_INTER_BROKER_LISTENER_NAME: INTERNAL
-
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
       KAFKA_LOG_RETENTION_HOURS: 168
-
-      # Thêm để tránh lỗi khởi động chậm
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
       KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
       KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
-
     volumes:
       - kafka_data:/var/lib/kafka/data
     healthcheck:
-      # Dùng INTERNAL port 29092 để check bên trong container
       test: ["CMD-SHELL", "kafka-broker-api-versions --bootstrap-server localhost:29092 || exit 1"]
       interval: 20s
       timeout: 10s
       retries: 15
-      start_period: 45s  # Kafka + Zookeeper cần thời gian
-  # Kafka UI — xem topic/message trực quan
+      start_period: 45s
+
+  # Kafka UI
   kafka-ui:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
@@ -165,7 +114,7 @@ services:
     networks: [lakehouse]
     ports:
       - "9000:9000"   # S3 API
-      - "9001:9001"   # Web Console
+      - "9002:9001"   # Web Console (đổi sang 9002 tránh conflict với Gravitino)
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -178,7 +127,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # MinIO Init — tạo bucket bronze/silver/gold
+  # MinIO Init — tạo buckets
   minio-init:
     image: minio/mc:latest
     container_name: travelling_minio-init
@@ -197,7 +146,7 @@ services:
       "
 
   # ─────────────────────────────────────────
-  # 4. POSTGRES — metadata store cho Airflow & Hive Metastore
+  # 4. POSTGRES
   # ─────────────────────────────────────────
   postgres:
     image: postgres:15-alpine
@@ -217,15 +166,47 @@ services:
       retries: 10
 
   # ─────────────────────────────────────────
-  # 5. SPARK — xử lý Bronze → Silver
+  # 5. GRAVITINO — Iceberg REST Catalog
+  # ─────────────────────────────────────────
+  gravitino:
+      image: apache/gravitino-iceberg-rest:1.1.0
+      container_name: travelling_gravitino
+      networks: [lakehouse]
+      ports:
+        - "9001:9001"   # Iceberg REST endpoint
+      environment:
+        GRAVITINO_MEM: "-Xms512m -Xmx512m -XX:MaxMetaspaceSize=256m"
+        JAVA_TOOL_OPTIONS: >-
+          -Dgravitino.iceberg-rest.catalog-backend=hive
+          -Dgravitino.iceberg-rest.warehouse=s3://iceberg-warehouse/
+          -Dgravitino.iceberg-rest.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+          -Dgravitino.iceberg-rest.s3-endpoint=http://minio:9000
+          -Dgravitino.iceberg-rest.s3-access-key-id=minioadmin
+          -Dgravitino.iceberg-rest.s3-secret-access-key=minioadmin
+          -Dgravitino.iceberg-rest.s3-path-style-access=true
+          -Dgravitino.iceberg-rest.s3-region=us-east-1
+      depends_on:
+        minio:
+          condition: service_healthy
+        minio-init:
+          condition: service_completed_successfully
+      healthcheck:
+        test: ["CMD", "curl", "-f", "http://localhost:9001/iceberg/v1/config"]
+        start_period: 30s
+        interval: 10s
+        timeout: 10s
+        retries: 5
+
+  # ─────────────────────────────────────────
+  # 6. SPARK
   # ─────────────────────────────────────────
   spark-master:
-    build: ./spark   # bạn cần có Dockerfile trong ./spark
+    build: ./infrastructure/spark
     container_name: travelling_spark-master
     networks: [lakehouse]
     ports:
       - "7077:7077"
-      - "8081:8080"   # giữ giống config cũ của bạn
+      - "8081:8080"
     environment:
       SPARK_MODE: master
       SPARK_MASTER_HOST: spark-master
@@ -235,11 +216,11 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
     volumes:
-      - ./spark:/opt/spark-apps
+      - ./pipeline/processing:/opt/spark-apps
       - ./data:/opt/spark-data
 
   spark-worker:
-    build: ./spark
+    build: ./infrastructure/spark
     container_name: spark-worker
     networks: [lakehouse]
     depends_on:
@@ -256,64 +237,66 @@ services:
       AWS_SECRET_ACCESS_KEY: minioadmin
       AWS_REGION: us-east-1
     volumes:
-      - ./spark:/opt/spark-apps
+      - ./pipeline/processing:/opt/spark-apps
       - ./data:/opt/spark-data
+
   # ─────────────────────────────────────────
-  # 6. TRINO — Query Engine (query Iceberg tables)
+  # 7. TRINO — Query Engine
   # ─────────────────────────────────────────
   trino:
     image: trinodb/trino:446
     container_name: travelling_trino
     networks: [lakehouse]
     ports:
-      - "8083:8080"     # host:container
+      - "8083:8080"
     volumes:
-      - ./trino/catalog:/etc/trino/catalog
-      - ./trino/config.properties:/etc/trino/config.properties
-      - ./trino/jvm.config:/etc/trino/jvm.config
-      - ./trino/node.properties:/etc/trino/node.properties
+      - ./infrastructure/trino/catalog:/etc/trino/catalog
+      - ./infrastructure/trino/config.properties:/etc/trino/config.properties
+      - ./infrastructure/trino/jvm.config:/etc/trino/jvm.config
+      - ./infrastructure/trino/node.properties:/etc/trino/node.properties
     depends_on:
       gravitino:
         condition: service_healthy
       minio:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]  # dùng port container, không phải host
+      test: ["CMD", "curl", "-f", "http://localhost:8080/v1/info"]
       interval: 10s
       timeout: 10s
       retries: 10
       start_period: 30s
+
   # ─────────────────────────────────────────
-  # 7. DBT — transformation Silver → Gold
+  # 8. DBT — transformation Silver → Gold
   # ─────────────────────────────────────────
   dbt:
-    build: ./dbt
+    build: ./pipeline/transformation/dbt
     container_name: travelling_dbt
     networks: [lakehouse]
     depends_on:
       trino:
         condition: service_healthy
     volumes:
-      - ./dbt:/usr/app/dbt
+      - ./pipeline/transformation/dbt:/usr/app/dbt
     working_dir: /usr/app/dbt
     entrypoint: ["tail", "-f", "/dev/null"]
 
   # ─────────────────────────────────────────
-  # 8. AIRFLOW — Orchestration
+  # 9. AIRFLOW — Orchestration
   # ─────────────────────────────────────────
-  
   airflow-init:
     <<: *airflow-common
     container_name: airflow-init
     networks: [lakehouse]
     command: >
       bash -c "airflow db upgrade && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com || true"
+
   airflow-webserver:
     <<: *airflow-common
     container_name: airflow-webserver
     networks: [lakehouse]
     ports:
-      - "8085:8080"   # Airflow UI
+      - "8085:8080"
     command: webserver
     depends_on:
       airflow-init:
@@ -334,7 +317,7 @@ services:
         condition: service_completed_successfully
 
   # ─────────────────────────────────────────
-  # 9. APACHE SUPERSET — BI Dashboard
+  # 10. APACHE SUPERSET — BI Dashboard
   # ─────────────────────────────────────────
   superset:
     image: apache/superset:3.1.3
@@ -349,7 +332,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./superset/superset_config.py:/app/pythonpath/superset_config.py
+      - ./infrastructure/superset/superset_config.py:/app/pythonpath/superset_config.py
     command: >
       bash -c "
         superset db upgrade &&

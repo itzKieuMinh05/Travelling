@@ -1,3 +1,17 @@
 data/
 *.csv
 airflow/logs/
+# Data files
+data/
+*.csv
+*.zip
+*.parquet
+
+# Logs
+infrastructure/airflow/logs/
+infrastructure/airflow/plugins/
+
+# Backup
+docker-compose.yml.bak
+
+venv/

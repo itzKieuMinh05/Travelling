@@ -80,7 +80,7 @@ def publish_csv(producer: KafkaProducer, filepath: str, topic: str, key_field: s
 if __name__ == "__main__":
     import os
 
-    DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "data")
+    DATA_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data")
 
     producer = make_producer()
 
