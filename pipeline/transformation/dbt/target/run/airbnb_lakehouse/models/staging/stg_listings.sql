@@ -1,9 +1,12 @@
 
-  create or replace view
-    "iceberg"."gold_silver"."stg_listings"
-  security definer
-  as
-    -- models/staging/stg_listings.sql
+  
+    
+
+    create table "iceberg"."gold_silver"."stg_listings"
+      
+      
+    as (
+      -- models/staging/stg_listings.sql
 -- View nhẹ ngồi trên Silver Iceberg table
 
 
@@ -43,4 +46,6 @@ SELECT
 FROM iceberg.silver.listings
 WHERE listing_id IS NOT NULL
   AND price > 0
-  ;
+    );
+
+  

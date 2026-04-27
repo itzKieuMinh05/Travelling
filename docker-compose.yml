@@ -179,7 +179,7 @@ services:
         JAVA_TOOL_OPTIONS: >-
           -Dgravitino.iceberg-rest.catalog-backend=hive
           -Dgravitino.iceberg-rest.warehouse=s3://iceberg-warehouse/
-          -Dgravitino.iceberg-rest.io-impl=org.apache.iceberg.aws.s3.S3FileIO
+          -Dgravitino.iceberg-rest.io-impl=org.apache.iceberg.hadoop.HadoopFileIO
           -Dgravitino.iceberg-rest.s3-endpoint=http://minio:9000
           -Dgravitino.iceberg-rest.s3-access-key-id=minioadmin
           -Dgravitino.iceberg-rest.s3-secret-access-key=minioadmin
@@ -203,6 +203,7 @@ services:
   spark-master:
     build: ./infrastructure/spark
     container_name: travelling_spark-master
+    command: ["bin/spark-class", "org.apache.spark.deploy.master.Master", "--host", "spark-master", "--port", "7077", "--webui-port", "8080"]
     networks: [lakehouse]
     ports:
       - "7077:7077"
@@ -222,6 +223,7 @@ services:
   spark-worker:
     build: ./infrastructure/spark
     container_name: spark-worker
+    command: ["bin/spark-class", "org.apache.spark.deploy.worker.Worker", "--webui-port", "8081", "spark://spark-master:7077"]
     networks: [lakehouse]
     depends_on:
       - spark-master
@@ -327,7 +329,8 @@ services:
       - "8088:8088"
     environment:
       SUPERSET_SECRET_KEY: "your-superset-secret-key"
-      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://airflow:airflow@postgres:5432/airflow
+      # ✅ Đổi từ airflow → superset
+      SQLALCHEMY_DATABASE_URI: postgresql+psycopg2://airflow:airflow@postgres:5432/superset
     depends_on:
       postgres:
         condition: service_healthy
@@ -336,7 +339,9 @@ services:
     command: >
       bash -c "
         superset db upgrade &&
-        superset fab create-admin --username admin --firstname Superset --lastname Admin --email admin@superset.com --password admin &&
+        superset fab create-admin
+          --username admin --firstname Superset --lastname Admin
+          --email admin@superset.com --password admin &&
         superset init &&
         superset run -h 0.0.0.0 -p 8088 --with-threads --reload
       "

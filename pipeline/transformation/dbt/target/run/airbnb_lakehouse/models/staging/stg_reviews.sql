@@ -1,9 +1,12 @@
 
-  create or replace view
-    "iceberg"."gold_silver"."stg_reviews"
-  security definer
-  as
-    -- models/staging/stg_reviews.sql
+  
+    
+
+    create table "iceberg"."gold_silver"."stg_reviews"
+      
+      
+    as (
+      -- models/staging/stg_reviews.sql
 
 
 
@@ -18,4 +21,6 @@ FROM iceberg.silver.reviews
 WHERE review_id IS NOT NULL
   AND listing_id IS NOT NULL
   AND review_date IS NOT NULL
-  ;
+    );
+
+  

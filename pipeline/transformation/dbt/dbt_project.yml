@@ -11,7 +11,7 @@ docs-paths:  ["docs"]
 models:
   airbnb_lakehouse:
     staging:
-      +materialized: view          # staging = views nhẹ, không tốn storage
+      +materialized: table         # Iceberg REST catalog không hỗ trợ CREATE VIEW
       +schema: silver
     marts:
       +materialized: table         # marts = Iceberg tables thật sự

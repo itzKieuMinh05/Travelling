@@ -1,7 +1,7 @@
 -- models/staging/stg_listings.sql
 -- View nhẹ ngồi trên Silver Iceberg table
 
-{{ config(materialized='view') }}
+{{ config(materialized='table') }}
 
 SELECT
     listing_id,

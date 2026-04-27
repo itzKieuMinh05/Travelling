@@ -1,6 +1,6 @@
 -- models/staging/stg_reviews.sql
 
-{{ config(materialized='view') }}
+{{ config(materialized='table') }}
 
 SELECT
     review_id,

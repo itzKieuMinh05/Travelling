@@ -164,6 +164,9 @@ def main():
     silver_reviews = clean_reviews(raw_reviews)
     print(f"   Cleaned count: {silver_reviews.count():,}")
 
+    # Ensure namespace exists in Iceberg REST catalog before table writes
+    spark.sql("CREATE NAMESPACE IF NOT EXISTS local.silver")
+
     # Ghi vào Silver dưới dạng Iceberg table
     print("\n📤 Writing Silver Listings → Iceberg...")
     (
